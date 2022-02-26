@@ -1,0 +1,209 @@
+---
+title: "Project 1"
+author: "Tora Mullings"
+date: "2/26/2022"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+# Load the necessary libraries.
+readr, tidyverse and stringr.
+```{r}
+library(readr)
+library(stringr)
+library(tidyverse)
+```
+
+# Read file
+Read the tournament text file.
+```{r}
+filename <- "tournamentinfo.txt"
+
+rounds_line <- read_lines(filename, skip=2, n_max = 1)
+raw_lines = read_lines(filename, skip=4, n_max = -1)
+```
+
+# Get the number of rounds in the tournament.
+```{r}
+str <- str_split(string=gsub("[^0-9]", "", rounds_line), pattern="")
+round <- tail(unlist(str), n=1)
+round <- as.numeric(round)
+```
+
+
+## `get_rounds_names` creates a vector of rounds names.
+```{r}
+get_round_names <- function(r) {
+  names <- c()
+  for (i in 1:r) {
+    name <- paste(c("r", i), collapse="")
+    names <- append(names, name)
+  }
+  return(names)
+}
+
+round_names <- get_round_names(round)
+```
+
+
+# `read_players`
+`read_players` takes the raw lines from the text file. It initializes a data frame. Since each player in the text file has 2 lines, this function works 2 lines at a time. It stores the information from the text file in the data frame to be queried later.
+
+```{r}
+read_players <- function(lines) {
+  df = data.frame()  # initialize dataframe
+  i=1
+  while (i < length(lines)) {
+    player <- add_player(lines[i], lines[i+1])
+    vec <- c(
+      player_num=player["player_num"],
+      state=player["state"],
+      player_name=str_to_title(player["player_name"]),
+      total_points=player["total_points"],
+      player_pre_rating=player["player_pre_rating"])
+    
+    for (j in 1:round) {
+      vec <- append(vec, player[round_names[j]])
+    }
+      
+      
+    df <- rbind(df, vec)
+    
+    i = i + 3   # skip --------------- and go to next player
+  }
+  columns= append(c("player_num","state","player_name", "total_points","player_pre_rating"),
+                  round_names)
+  colnames(df) = columns
+  
+  df[c(1,4:round+4+1)] <- as.numeric(unlist(df[c(1,4:round+4+1)]))
+  
+  return(df)
+}
+```
+
+
+
+# `add_player`
+`add_player` performs a series of regex operations on the pair of lines that belongs to each player. It removes whitespace and unnecessary characters. It returns vectors that hold clean data for a single player.
+```{r}
+add_player <- function(line1, line2) {
+  # # parse line 1
+  # 
+  
+  a <- str_split(line1, "[|]")
+  a <- gsub('(\\s{2,})', '', a)
+  a <- gsub('\\"', '', a)
+  a <- unlist(str_split(a, ","))
+  a <- gsub('(\\s{2,})', '', a)
+  a[4:10] <- gsub("[A-Z]", "", a[4:10])
+  a[1] <- gsub("c[(]", "", a[1])   # remove c(
+  a <- a[1:length(a)-1]
+  
+  n <- c("player_num", "player_name", "total_points")
+  n <- append(n, round_names)
+  names(a) <- n
+  
+  
+  # parse line 2
+  b <- unlist(str_split(line2, "[|]"))
+  b <- b[1:2]
+  b <- gsub("\\s+", "", b)
+  colon_index <- unlist(gregexpr(":", b))[2]
+  arrow_index <- unlist(gregexpr("->", b))[2] 
+  player_pre_rating <- substr(b, start=colon_index+1, stop=arrow_index-1)[2] # extract the pre-rating
+  
+  # Still might have a "P" in the score, remove it.
+  player_pre_rating <- gsub("P.*", "", player_pre_rating)
+  state <- b[1]
+  vec <- c(state, player_pre_rating)
+  names(vec) <- c("state", "player_pre_rating")
+  
+  return(c(a, vec))
+}
+```
+
+
+
+
+# `get_opp_ids`
+`get_opp_ids` takes a data frame of player information, and a player's id. It returns a vector of the player's opponents' ids.
+```{r}
+get_opp_ids <- function(df, id) {
+  opps <- unlist(df[id,][c(6:(round+6-1))])
+  return(opps)
+}
+```
+
+
+
+# `get_opp_avg`
+`get_opp_avg` takes a data frame of player information and a vector of player ids and returns the average of the corresponding players' pre-rating scores.
+```{r}
+get_opp_avg <- function(df, ids) {
+  ratings <- c()
+  for (player_id in ids) {
+    ratings <- append(ratings, as.numeric(unlist(df[player_id,][5])))
+    
+  }
+  avg <- mean(ratings, na.rm=TRUE)
+  return(avg)
+}
+```
+
+
+
+# Populate data frame
+Place the cleaned data from the text file into a data frame named `result`.
+```{r}
+result <- read_players(raw_lines)
+```
+
+
+# Average Pre Chess Rating of Opponents
+Calculate the pre chess rating averages of opponents for each player and place them into a vector. Append the vector as a new column in the data frame `result`.
+```{r}
+new_col <- c()
+for (player in 1:nrow(result)) {  # player is a row
+  opp_ids <- get_opp_ids(result, player)    # get ids of this player's opponents
+  avg <- get_opp_avg(result, as.numeric(opp_ids))
+  avg <- round(avg, digits=0)
+  new_col <- append(new_col, avg)
+}
+
+result <- mutate(result, avg_opp_pre_rating=new_col)
+
+
+```
+
+
+# Drop columns
+Drop the unnecessary columns and rearrange columns.
+```{r}
+
+result <- result[-c(1, 6:(round+6-1))]
+View(result)
+result <- result[c("player_name", "state", "total_points", "player_pre_rating", "avg_opp_pre_rating")]
+
+```
+
+
+# Data frame -> CSV file
+Write the data frame to a csv file named `result.csv`.
+```{r}
+write.csv(result, "result.csv", row.names=FALSE)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
